@@ -157,7 +157,7 @@ app.use((error, request, response, next) => {
 
 try {
     await mongoose.connect(mongoUri);
-    app.listen(port, "127.0.0.1", () => {
+    app.listen(port, "0.0.0.0", () => {
         console.log(`bucks2bars API listening on http://127.0.0.1:${port}`);
         console.log(`MongoDB connected to database: ${mongoose.connection.name}`);
     });
