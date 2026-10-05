@@ -41,13 +41,8 @@ function compactMoney(amount) {
     return compactCurrency.format(amount || 0);
 }
 
-function dateForMonth(year, month) {
-    const now = new Date();
-    const monthText = String(month + 1).padStart(2, "0");
-    const day = year === now.getFullYear() && month === now.getMonth()
-        ? String(now.getDate()).padStart(2, "0")
-        : "01";
-    return `${year}-${monthText}-${day}`;
+function todayDate() {
+    return new Date().toISOString().slice(0, 10);
 }
 
 function normalizeYear(data, year) {
@@ -127,8 +122,10 @@ function IncomeExpenseChart({ incomes, expenses, active }) {
 }
 
 export default function App() {
-    const initialYear = new Date().getFullYear();
-    const initialMonth = new Date().getMonth();
+    const initialDate = todayDate();
+    const initialYear = Number(initialDate.slice(0, 4));
+    const initialMonth = Number(initialDate.slice(5, 7)) - 1;
+    const today = todayDate();
     const [authUser, setAuthUser] = useState(null);
     const [authChecking, setAuthChecking] = useState(true);
     const [authError, setAuthError] = useState("");
@@ -139,7 +136,6 @@ export default function App() {
     const [incomeDraft, setIncomeDraft] = useState("");
     const [activeTab, setActiveTab] = useState("data");
     const [expenseDraft, setExpenseDraft] = useState(() => ({
-        date: dateForMonth(initialYear, initialMonth),
         amount: "",
         category: "",
         description: ""
@@ -208,6 +204,9 @@ export default function App() {
     const totalIncome = yearData.incomes.reduce((total, amount) => total + amount, 0);
     const totalExpenses = yearData.expenses.reduce((total, expense) => total + expense.amount, 0);
     const balance = totalIncome - totalExpenses;
+    const selectedMonthIncome = yearData.incomes[selectedMonth] || 0;
+    const selectedMonthExpenses = monthExpenses[selectedMonth];
+    const selectedMonthBalance = selectedMonthIncome - selectedMonthExpenses;
     const monthName = MONTHS[selectedMonth];
     const visibleExpenses = yearData.expenses
         .filter((expense) => expense.date.startsWith(`${year}-${String(selectedMonth + 1).padStart(2, "0")}`))
@@ -228,13 +227,11 @@ export default function App() {
         selectedYearRef.current = nextYear;
         setYear(nextYear);
         setYearData(emptyYear(nextYear));
-        setExpenseDraft((current) => ({ ...current, date: dateForMonth(nextYear, selectedMonth) }));
     }
 
     function chooseMonth(month) {
         setSelectedMonth(month);
         setIncomeDraft(String(yearData.incomes[month] || ""));
-        setExpenseDraft((current) => ({ ...current, date: dateForMonth(year, month) }));
     }
 
     function updateIncome(month, value) {
@@ -297,16 +294,16 @@ export default function App() {
         event.preventDefault();
         setFormError("");
         const amount = Number(expenseDraft.amount);
-        const dateParts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(expenseDraft.date);
+        const dateParts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(today);
         const parsedDate = dateParts
             ? new Date(Date.UTC(Number(dateParts[1]), Number(dateParts[2]) - 1, Number(dateParts[3])))
             : null;
-        if (!dateParts || !parsedDate || parsedDate.toISOString().slice(0, 10) !== expenseDraft.date) {
+        if (!dateParts || !parsedDate || parsedDate.toISOString().slice(0, 10) !== today) {
             setFormError("Enter a valid expense date.");
             return;
         }
         if (Number(dateParts[1]) !== year) {
-            setFormError(`Choose a date in ${year} to add it to this year's totals.`);
+            setFormError("Select the current year to add today's expense.");
             return;
         }
         if (!Number.isFinite(amount) || amount <= 0) {
@@ -322,7 +319,7 @@ export default function App() {
         setApiError("");
         try {
             const updated = await addExpense(year, {
-                date: expenseDraft.date,
+                date: today,
                 amount,
                 category: expenseDraft.category.trim(),
                 description: expenseDraft.description.trim()
@@ -426,10 +423,10 @@ export default function App() {
             </header>
 
             <main className="mx-auto max-w-7xl px-4 pb-12 pt-7 sm:px-6 lg:px-8">
-                <section aria-label="Yearly totals" className="mb-7 grid gap-3 sm:grid-cols-3">
-                    <SummaryCard label="Income this year" value={totalIncome} note="Across all 12 months" />
-                    <SummaryCard label="Expenses this year" value={totalExpenses} note="From your daily entries" color="text-[#b95d40]" />
-                    <SummaryCard label="Remaining" value={balance} note="Income minus expenses" color={balance < 0 ? "text-[#b95d40]" : "text-[#1f704d]"} />
+                <section aria-label="Monthly totals" className="mb-7 grid gap-3 sm:grid-cols-3">
+                    <SummaryCard label="Income this month" value={selectedMonthIncome} note={`For ${monthName} ${year}`} />
+                    <SummaryCard label="Expenses this month" value={selectedMonthExpenses} note={`For ${monthName} ${year}`} color="text-[#b95d40]" />
+                    <SummaryCard label="Remaining this month" value={selectedMonthBalance} note="Income minus expenses" color={selectedMonthBalance < 0 ? "text-[#b95d40]" : "text-[#1f704d]"} />
                 </section>
 
                 <div className="mb-5 flex items-center justify-between border-b border-[#dce4dc]">
@@ -570,7 +567,7 @@ export default function App() {
                         <form className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5" onSubmit={submitExpense} noValidate>
                             <label className="block text-sm font-semibold text-[#46534b]">
                                 Date
-                                <input name="date" type="date" min={`${year}-01-01`} max={`${year}-12-31`} required value={expenseDraft.date} onChange={updateExpenseField} className="mt-1.5 h-11 w-full rounded-lg border border-[#dce4dc] bg-white px-3 font-normal text-[#202923] outline-none transition focus:border-[#337b5b] focus:ring-2 focus:ring-[#337b5b]/15" />
+                                <input name="date" type="date" min={today} max={today} required readOnly value={today} className="mt-1.5 h-11 w-full rounded-lg border border-[#dce4dc] bg-white px-3 font-normal text-[#202923] outline-none transition focus:border-[#337b5b] focus:ring-2 focus:ring-[#337b5b]/15" />
                             </label>
                             <label className="block text-sm font-semibold text-[#46534b]">
                                 Amount (₹)

@@ -117,7 +117,10 @@ app.post("/api/years/:year/expenses", requireAuth, async (request, response) => 
     const year = parseYear(request.params.year);
     const { date, category, description } = request.body || {};
     const amount = Number(request.body?.amount);
-    if (!isValidCalendarDate(date) || Number(date.slice(0, 4)) !== year) {
+    if (!isValidCalendarDate(date) || date !== new Date().toISOString().slice(0, 10)) {
+        return response.status(400).json({ error: "Expenses can only be added for today." });
+    }
+    if (Number(date.slice(0, 4)) !== year) {
         return response.status(400).json({ error: `Enter a valid date in ${year}.` });
     }
     if (!Number.isFinite(amount) || amount <= 0) {
