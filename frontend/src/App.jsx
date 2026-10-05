@@ -8,7 +8,8 @@ import {
     LinearScale,
     Tooltip
 } from "chart.js";
-import { addExpense, getYear, removeExpense, saveIncome } from "./api.js";
+import AuthScreen from "./AuthScreen.jsx";
+import { addExpense, getCurrentUser, getYear, loginAccount, logoutAccount, removeExpense, saveIncome } from "./api.js";
 
 ChartJS.register(BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend);
 
@@ -128,6 +129,9 @@ function IncomeExpenseChart({ incomes, expenses, active }) {
 export default function App() {
     const initialYear = new Date().getFullYear();
     const initialMonth = new Date().getMonth();
+    const [authUser, setAuthUser] = useState(null);
+    const [authChecking, setAuthChecking] = useState(true);
+    const [authError, setAuthError] = useState("");
     const [year, setYear] = useState(initialYear);
     const [yearDraft, setYearDraft] = useState(String(initialYear));
     const [yearData, setYearData] = useState(() => emptyYear(initialYear));
@@ -149,6 +153,27 @@ export default function App() {
     const chartTabRef = useRef(null);
 
     useEffect(() => {
+        const controller = new AbortController();
+        getCurrentUser(controller.signal)
+            .then((user) => {
+                if (!controller.signal.aborted) setAuthUser(user);
+            })
+            .catch((error) => {
+                if (!controller.signal.aborted) setAuthError(error.message);
+            })
+            .finally(() => {
+                if (!controller.signal.aborted) setAuthChecking(false);
+            });
+
+        return () => controller.abort();
+    }, []);
+
+    useEffect(() => {
+        if (!authUser) {
+            setIsLoading(false);
+            return undefined;
+        }
+
         const controller = new AbortController();
         setIsLoading(true);
         setSaveStatus("Loading from MongoDB");
@@ -172,7 +197,7 @@ export default function App() {
             });
 
         return () => controller.abort();
-    }, [year]);
+    }, [year, authUser?.id]);
 
     const monthExpenses = MONTHS.map((_, month) => {
         const key = `${year}-${String(month + 1).padStart(2, "0")}`;
@@ -330,12 +355,36 @@ export default function App() {
         }
     }
 
+    async function signOut() {
+        try {
+            await logoutAccount();
+            setAuthUser(null);
+            setYearData(emptyYear(year));
+            setApiError("");
+            setAuthError("");
+            setSaveStatus("Signed out");
+        } catch (error) {
+            setApiError(`Could not log out: ${error.message}`);
+        }
+    }
+
     function handleTabKeyDown(event) {
         if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
         event.preventDefault();
         const nextTab = activeTab === "data" ? "chart" : "data";
         setActiveTab(nextTab);
         (nextTab === "data" ? dataTabRef : chartTabRef).current?.focus();
+    }
+
+    if (authChecking) {
+        return <div className="flex min-h-screen items-center justify-center bg-[#f3f5f2] font-sans text-sm text-[#718078]">Checking your account...</div>;
+    }
+
+    if (!authUser) {
+        return <AuthScreen onAuthenticated={(user) => {
+            setAuthUser(user);
+            setAuthError("");
+        }} initialError={authError} />;
     }
 
     return (
@@ -353,22 +402,26 @@ export default function App() {
                             <span className="block text-xs text-[#718078]">Your year, in balance</span>
                         </span>
                     </a>
-                    <label className="flex items-center gap-3 text-sm font-semibold text-[#58665e]" htmlFor="year-select">
-                        Year
-                        <input
-                            id="year-select"
-                            type="number"
-                            min="2000"
-                            max="2100"
-                            step="1"
-                            value={yearDraft}
-                            onChange={changeYear}
-                            onBlur={commitYear}
-                            onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()}
-                            className="h-10 w-24 rounded-lg border border-[#dce4dc] bg-white px-3 text-center font-semibold text-[#202923] outline-none transition focus:border-[#337b5b] focus:ring-2 focus:ring-[#337b5b]/15"
-                            aria-label="Selected year"
-                        />
-                    </label>
+                    <div className="flex flex-wrap items-center gap-3">
+                        <span className="hidden text-xs text-[#718078] sm:inline">{authUser.email}</span>
+                        <label className="flex items-center gap-3 text-sm font-semibold text-[#58665e]" htmlFor="year-select">
+                            Year
+                            <input
+                                id="year-select"
+                                type="number"
+                                min="2000"
+                                max="2100"
+                                step="1"
+                                value={yearDraft}
+                                onChange={changeYear}
+                                onBlur={commitYear}
+                                onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()}
+                                className="h-10 w-24 rounded-lg border border-[#dce4dc] bg-white px-3 text-center font-semibold text-[#202923] outline-none transition focus:border-[#337b5b] focus:ring-2 focus:ring-[#337b5b]/15"
+                                aria-label="Selected year"
+                            />
+                        </label>
+                        <button type="button" onClick={signOut} className="h-10 rounded-lg border border-[#dce4dc] px-3 text-sm font-semibold text-[#58665e] transition hover:bg-[#f7f9f6] focus:outline-none focus:ring-2 focus:ring-[#337b5b]/30">Log out</button>
+                    </div>
                 </div>
             </header>
 

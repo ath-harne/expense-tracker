@@ -1,0 +1,2 @@
+export const isProduction = process.env.NODE_ENV === "production" || process.env.RENDER === "true";
+export const jwtSecret = process.env.JWT_SECRET || (isProduction ? "" : "local-development-session-secret");

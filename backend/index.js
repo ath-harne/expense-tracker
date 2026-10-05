@@ -1,8 +1,13 @@
 import "dotenv/config";
 import express from "express";
 import mongoose from "mongoose";
+import cookieParser from "cookie-parser";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import authRoutes from "./routes/auth.js";
+import { requireAuth } from "./middleware/requireAuth.js";
+import User from "./models/User.js";
+import { isProduction } from "./config/runtime.js";
 
 const app = express();
 const port = Number(process.env.PORT) || 3001;
@@ -18,7 +23,8 @@ const ExpenseSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 const YearSchema = new mongoose.Schema({
-    year: { type: Number, required: true, unique: true, min: 2000, max: 2100 },
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    year: { type: Number, required: true, min: 2000, max: 2100 },
     incomes: {
         type: [{ type: Number, min: 0 }],
         default: () => Array(12).fill(0),
@@ -26,10 +32,13 @@ const YearSchema = new mongoose.Schema({
     },
     expenses: { type: [ExpenseSchema], default: [] }
 }, { timestamps: true });
+YearSchema.index({ userId: 1, year: 1 }, { unique: true });
 
 const FinanceYear = mongoose.model("FinanceYear", YearSchema);
 
 app.use(express.json({ limit: "32kb" }));
+app.use(cookieParser());
+app.use("/api/auth", authRoutes);
 
 function parseYear(value) {
     const year = Number(value);
@@ -55,11 +64,11 @@ function serializeYear(record, year) {
     };
 }
 
-async function ensureYear(year) {
+async function ensureYear(userId, year) {
     try {
         return await FinanceYear.findOneAndUpdate(
-            { year },
-            { $setOnInsert: { year, incomes: Array(12).fill(0), expenses: [] } },
+            { userId, year },
+            { $setOnInsert: { userId, year, incomes: Array(12).fill(0), expenses: [] } },
             { new: true, upsert: true, setDefaultsOnInsert: false, runValidators: true }
         );
     } catch (error) {
@@ -78,13 +87,13 @@ app.get("/api/health", (request, response) => {
     response.json({ status: "ok", database: mongoose.connection.readyState === 1 ? "connected" : "disconnected" });
 });
 
-app.get("/api/years/:year", async (request, response) => {
+app.get("/api/years/:year", requireAuth, async (request, response) => {
     const year = parseYear(request.params.year);
-    const record = await FinanceYear.findOne({ year });
+    const record = await FinanceYear.findOne({ userId: request.authUser.id, year });
     response.json(serializeYear(record, year));
 });
 
-app.put("/api/years/:year/incomes/:month", async (request, response) => {
+app.put("/api/years/:year/incomes/:month", requireAuth, async (request, response) => {
     const year = parseYear(request.params.year);
     const month = Number(request.params.month);
     const amount = Number(request.body?.amount);
@@ -95,16 +104,16 @@ app.put("/api/years/:year/incomes/:month", async (request, response) => {
         return response.status(400).json({ error: "Income must be a number greater than or equal to zero." });
     }
 
-    await ensureYear(year);
+    await ensureYear(request.authUser.id, year);
     const record = await FinanceYear.findOneAndUpdate(
-        { year },
+        { userId: request.authUser.id, year },
         { $set: { [`incomes.${month}`]: amount } },
         { new: true, runValidators: true }
     );
     response.json(serializeYear(record, year));
 });
 
-app.post("/api/years/:year/expenses", async (request, response) => {
+app.post("/api/years/:year/expenses", requireAuth, async (request, response) => {
     const year = parseYear(request.params.year);
     const { date, category, description } = request.body || {};
     const amount = Number(request.body?.amount);
@@ -121,23 +130,23 @@ app.post("/api/years/:year/expenses", async (request, response) => {
         return response.status(400).json({ error: "Description is required and must be 120 characters or fewer." });
     }
 
-    await ensureYear(year);
+    await ensureYear(request.authUser.id, year);
     const record = await FinanceYear.findOneAndUpdate(
-        { year },
+        { userId: request.authUser.id, year },
         { $push: { expenses: { date, amount, category: category.trim(), description: description.trim() } } },
         { new: true, runValidators: true }
     );
     response.status(201).json(serializeYear(record, year));
 });
 
-app.delete("/api/years/:year/expenses/:expenseId", async (request, response) => {
+app.delete("/api/years/:year/expenses/:expenseId", requireAuth, async (request, response) => {
     const year = parseYear(request.params.year);
     if (!mongoose.isValidObjectId(request.params.expenseId)) {
         return response.status(400).json({ error: "Invalid expense ID." });
     }
 
     const record = await FinanceYear.findOneAndUpdate(
-        { year, "expenses._id": request.params.expenseId },
+        { userId: request.authUser.id, year, "expenses._id": request.params.expenseId },
         { $pull: { expenses: { _id: request.params.expenseId } } },
         { new: true }
     );
@@ -156,7 +165,18 @@ app.use((error, request, response, next) => {
 });
 
 try {
+    if (isProduction && !process.env.JWT_SECRET) {
+        throw new Error("JWT_SECRET must be configured in production.");
+    }
     await mongoose.connect(mongoUri);
+    await User.createIndexes();
+    const indexes = await FinanceYear.collection.indexes().catch((error) => {
+        if (error.code === 26 || error.codeName === "NamespaceNotFound") return [];
+        throw error;
+    });
+    const oldYearIndex = indexes.find((index) => index.unique && index.key?.year === 1 && Object.keys(index.key).length === 1);
+    if (oldYearIndex) await FinanceYear.collection.dropIndex(oldYearIndex.name);
+    await FinanceYear.createIndexes();
     app.listen(port, "0.0.0.0", () => {
         console.log(`bucks2bars API listening on http://127.0.0.1:${port}`);
         console.log(`MongoDB connected to database: ${mongoose.connection.name}`);

@@ -23,7 +23,7 @@ The code is separated into `frontend/` (React, Vite, Tailwind, Chart.js) and `ba
    Copy-Item .env.example .env
    ```
 
-   The default URI uses the local MongoDB service at `mongodb://127.0.0.1:27017/bucks2bars`. For Atlas, set `MONGO_URI` in `.env` to your connection URI. Keep `.env` private; it is excluded from Git.
+   The default URI uses the local MongoDB service at `mongodb://127.0.0.1:27017/bucks2bars`. For Atlas, set `MONGO_URI` in `.env` to your connection URI. Set `JWT_SECRET` to a long random value. Keep `.env` private; it is excluded from Git.
 
 3. Start the React dev server and API:
 
@@ -42,6 +42,10 @@ npm start
 
 The Express server serves the production frontend and API from the same origin. The API health check is available at `/api/health`.
 
+For Render, add both `MONGO_URI` and `JWT_SECRET` in the service environment settings. Generate a strong secret with `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` and do not commit it.
+
 ## Data storage
 
-Yearly income and expense records are stored in the MongoDB `bucks2bars` database, in the `financeyears` collection. The frontend does not store tracker data in `localStorage`.
+Accounts are stored in the `users` collection in the same MongoDB database. Passwords are bcrypt-hashed, sessions use an HTTP-only cookie, and finance records in `financeyears` are scoped by account. The frontend does not store passwords, session tokens, or tracker data in `localStorage`.
+
+Existing finance records created before accounts were added remain in MongoDB without an owner and are not exposed to new accounts. This avoids assigning private data to the wrong user.

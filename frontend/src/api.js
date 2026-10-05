@@ -1,6 +1,7 @@
 async function request(path, options = {}) {
     const response = await fetch(`/api${path}`, {
         ...options,
+        credentials: "same-origin",
         headers: {
             ...(options.body ? { "Content-Type": "application/json" } : {}),
             ...options.headers
@@ -9,7 +10,9 @@ async function request(path, options = {}) {
 
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
-        throw new Error(result.error || "The server could not complete this request.");
+        const error = new Error(result.error || "The server could not complete this request.");
+        error.status = response.status;
+        throw error;
     }
     return result;
 }
@@ -34,4 +37,32 @@ export function addExpense(year, expense) {
 
 export function removeExpense(year, expenseId) {
     return request(`/years/${year}/expenses/${expenseId}`, { method: "DELETE" });
+}
+
+export async function getCurrentUser(signal) {
+    try {
+        const result = await request("/auth/me", { signal });
+        return result.user;
+    } catch (error) {
+        if (error.status === 401) return null;
+        throw error;
+    }
+}
+
+export function registerAccount(email, password) {
+    return request("/auth/register", {
+        method: "POST",
+        body: JSON.stringify({ email, password })
+    });
+}
+
+export function loginAccount(email, password) {
+    return request("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password })
+    });
+}
+
+export function logoutAccount() {
+    return request("/auth/logout", { method: "POST" });
 }
