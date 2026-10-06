@@ -181,7 +181,7 @@ export default function App() {
                 const normalized = normalizeYear(data, year);
                 setYearData(normalized);
                 setIncomeDraft(String(normalized.incomes[selectedMonth] || ""));
-                setSaveStatus("Connected to MongoDB");
+               
             })
             .catch((error) => {
                 if (error.name === "AbortError") return;
